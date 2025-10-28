@@ -54,7 +54,12 @@ class KAN_FFT_linear(nn.Module):
             if self.num_exp > 0:
                 exp_section = current[:, total_mult_inputs:total_mult_inputs + total_exp_inputs]
                 exp_grouped = exp_section.view(y.shape[0], self.num_exp, 2)  # (batch, num, 2)
-                powered = torch.pow(exp_grouped[:, :, 0], exp_grouped[:, :, 1])
+                base = torch.sigmoid(exp_grouped[:, :, 0])   # range in (0, 1), centered near 0.5
+                exponent = torch.sigmoid(exp_grouped[:, :, 1])  # also in (0, 1)
+                base = base * 0.9 + 0.05      # → (0.05, 0.95)
+                exponent = exponent * 0.9 + 0.05
+                powered = torch.pow(base, exponent)
+              # powered = torch.pow(exp_grouped[:, :, 0], exp_grouped[:, :, 1])
             else:
                 powered = torch.empty((y.shape[0], 0), device=y.device)
             
@@ -129,7 +134,13 @@ class KAN_FFT_linear_w_base(nn.Module):
             if self.num_exp > 0:
                 exp_section = current[:, total_mult_inputs:total_mult_inputs + total_exp_inputs]
                 exp_grouped = exp_section.view(y.shape[0], self.num_exp, 2)  # (batch, num, 2)
-                powered = torch.pow(exp_grouped[:, :, 0], exp_grouped[:, :, 1])
+                base = torch.sigmoid(exp_grouped[:, :, 0])   # range in (0, 1), centered near 0.5
+                exponent = torch.sigmoid(exp_grouped[:, :, 1])  # also in (0, 1)
+                base = base * 0.9 + 0.05      # → (0.05, 0.95)
+                exponent = exponent * 0.9 + 0.05
+                powered = torch.pow(base, exponent)
+
+                # powered = torch.pow(exp_grouped[:, :, 0], exp_grouped[:, :, 1])
             else:
                 powered = torch.empty((y.shape[0], 0), device=y.device)
             

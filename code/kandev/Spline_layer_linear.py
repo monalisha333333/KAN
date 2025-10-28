@@ -324,15 +324,15 @@ class KAN_Spline_linear_w_base(nn.Module):
 
         if self.addbias:
             y += self.bias
-
+        print('values of internal nodes:before mult', y)
         # Optional multiplicative / exponential feature transformations
         if self.num_mult > 0 or self.num_exp > 0:
             total_mult_inputs = self.num_mult * self.mult_arity
             total_exp_inputs = self.num_exp * 2
             total_mult_exp_inputs = total_mult_inputs + total_exp_inputs
-            assert self.outdim >= total_mult_exp_inputs, "Not enough output dims for mult/exp operations"
+            assert self.out_dim >= total_mult_exp_inputs, "Not enough output dims for mult/exp operations"
 
-            keep_dim = self.outdim - total_mult_exp_inputs
+            keep_dim = self.out_dim - total_mult_exp_inputs
             kept = y[:, :keep_dim]
             current = y[:, keep_dim:]
 
@@ -340,6 +340,7 @@ class KAN_Spline_linear_w_base(nn.Module):
             if self.num_mult > 0:
                 mult_grouped = current[:, :total_mult_inputs].view(batch, self.num_mult, self.mult_arity)
                 multed = torch.prod(mult_grouped, dim=-1)
+                print('values of nodes after multed:', multed)
             else:
                 multed = torch.empty((batch, 0), device=y.device)
 
@@ -347,7 +348,14 @@ class KAN_Spline_linear_w_base(nn.Module):
             if self.num_exp > 0:
                 exp_section = current[:, total_mult_inputs:total_mult_inputs + total_exp_inputs]
                 exp_grouped = exp_section.view(batch, self.num_exp, 2)
-                powered = torch.pow(exp_grouped[:, :, 0], exp_grouped[:, :, 1])
+                
+                base = torch.sigmoid(exp_grouped[:, :, 0])   # range in (0, 1), centered near 0.5
+                exponent = torch.sigmoid(exp_grouped[:, :, 1])  # also in (0, 1)
+                base = base * 0.9 + 0.05      # → (0.05, 0.95)
+                exponent = exponent * 0.9 + 0.05
+                powered = torch.pow(base, exponent)
+                # powered = torch.pow(exp_grouped[:, :, 0], exp_grouped[:, :, 1])
+                print('values of nodes after powered:', powered)
             else:
                 powered = torch.empty((batch, 0), device=y.device)
 

@@ -1,5 +1,6 @@
 from .FFT_layer_linear import *
 from .Spline_layer_linear import *
+from .NN_layer_linear import *
 
 class KAN(nn.Module):
     def __init__(self, layer_dims, gridsize, layers_acts='F',addbias=True):
@@ -41,6 +42,11 @@ class KAN(nn.Module):
             if layers_acts[len(self.layers)] == 'S':
                 self.layers.append(KAN_Spline_linear_w_base(
                     input_dim, out_dim, self.gridsize, 
+                    num_mult, self.mult_arity, num_exp, 
+                    self.addbias))
+            elif layers_acts[len(self.layers)] == 'N':
+                self.layers.append(NN_Linear_SELU(
+                    input_dim, out_dim, 
                     num_mult, self.mult_arity, num_exp, 
                     self.addbias))
             else:
