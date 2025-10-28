@@ -39,12 +39,12 @@ class KAN(nn.Module):
         for item in layer_dims[1:]:
             out_dim, num_mult, num_exp = self.set_layer_params(item)
             if layers_acts[len(self.layers)] == 'S':
-                self.layers.append(KAN_Spline_linear(
+                self.layers.append(KAN_Spline_linear_w_base(
                     input_dim, out_dim, self.gridsize, 
                     num_mult, self.mult_arity, num_exp, 
                     self.addbias))
             else:
-                self.layers.append(KAN_FFT_linear(
+                self.layers.append(KAN_FFT_linear_w_base(
                     input_dim, out_dim, self.gridsize, 
                     num_mult, self.mult_arity, num_exp, 
                     self.addbias))

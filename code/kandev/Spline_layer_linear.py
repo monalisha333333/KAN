@@ -150,7 +150,7 @@ def extend_grid(grid, k_extend=0):
     return grid
 
 
-class KAN_Spline_linear(nn.Module):
+class KAN_Spline_linear_w_base(nn.Module):
     """
     KAN_Spline_linear class
     
@@ -311,7 +311,6 @@ class KAN_Spline_linear(nn.Module):
         # preacts = x[:,None,:].clone().expand(batch, self.out_dim, self.in_dim)
             
         base = self.base_fun(x) # (batch, in_dim)
-        # print("inside forward k=", self.k)
         y = coef2curve(x_eval=x, grid=self.grid, coef=self.coef, k=self.k)
         
         # postspline = y.clone().permute(0,2,1)
