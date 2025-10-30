@@ -11,6 +11,7 @@ class NN_Linear_SELU(nn.Module):
         self.num_mult = num_mult
         self.mult_arity = mult_arity
         self.num_exp = num_exp
+        self.layernorm = nn.LayerNorm(self.num_exp)
         self.addbias = addbias
 
         # Simple linear layer
@@ -51,11 +52,14 @@ class NN_Linear_SELU(nn.Module):
                 exp_section = current[:, total_mult_inputs:total_mult_inputs + total_exp_inputs]
                 exp_grouped = exp_section.view(y.shape[0], self.num_exp, 2)
                 # powered = torch.pow(exp_grouped[:, :, 0], exp_grouped[:, :, 1])
-                base = torch.sigmoid(exp_grouped[:, :, 0])   # range in (0, 1), centered near 0.5
-                exponent = torch.sigmoid(exp_grouped[:, :, 1])  # also in (0, 1)
-                base = base * 0.9 + 0.05      # → (0.05, 0.95)
-                exponent = exponent * 0.9 + 0.05
+                # base = torch.sigmoid(exp_grouped[:, :, 0])   # range in (0, 1), centered near 0.5
+                # exponent = torch.sigmoid(exp_grouped[:, :, 1])  # also in (0, 1)
+                # base = base * 0.9 + 0.05      # → (0.05, 0.95)
+                # exponent = exponent * 0.9 + 0.05
+                base = nn.functional.softplus(exp_grouped[:, :, 0])
+                exponent = nn.functional.softplus(exp_grouped[:, :, 1])
                 powered = torch.pow(base, exponent)
+                powered = self.layernorm(powered)
             else:
                 powered = torch.empty((y.shape[0], 0), device=y.device)
 

@@ -12,6 +12,7 @@ class KAN_FFT_linear(nn.Module):
         self.num_mult = num_mult
         self.mult_arity = mult_arity
         self.num_exp = num_exp
+        self.layernorm = nn.LayerNorm(self.num_exp) # normalisation after exponential
 
         self.fouriercoeffs = nn.Parameter(torch.randn(2, outdim, inputdim, gridsize) / 
                                              (np.sqrt(inputdim) * np.sqrt(self.gridsize)))
@@ -54,11 +55,14 @@ class KAN_FFT_linear(nn.Module):
             if self.num_exp > 0:
                 exp_section = current[:, total_mult_inputs:total_mult_inputs + total_exp_inputs]
                 exp_grouped = exp_section.view(y.shape[0], self.num_exp, 2)  # (batch, num, 2)
-                base = torch.sigmoid(exp_grouped[:, :, 0])   # range in (0, 1), centered near 0.5
-                exponent = torch.sigmoid(exp_grouped[:, :, 1])  # also in (0, 1)
-                base = base * 0.9 + 0.05      # → (0.05, 0.95)
-                exponent = exponent * 0.9 + 0.05
+                # base = torch.sigmoid(exp_grouped[:, :, 0])   # range in (0, 1), centered near 0.5
+                # exponent = torch.sigmoid(exp_grouped[:, :, 1])  # also in (0, 1)
+                # base = base * 0.9 + 0.05      # → (0.05, 0.95)
+                # exponent = exponent * 0.9 + 0.05
+                base = nn.functional.softplus(exp_grouped[:, :, 0])
+                exponent = nn.functional.softplus(exp_grouped[:, :, 1])
                 powered = torch.pow(base, exponent)
+                powered = self.layernorm(powered)
               # powered = torch.pow(exp_grouped[:, :, 0], exp_grouped[:, :, 1])
             else:
                 powered = torch.empty((y.shape[0], 0), device=y.device)
@@ -80,7 +84,7 @@ class KAN_FFT_linear_w_base(nn.Module):
         self.num_mult = num_mult
         self.mult_arity = mult_arity
         self.num_exp = num_exp
-
+        self.layernorm = nn.LayerNorm(num_exp)
         self.fouriercoeffs = nn.Parameter(torch.randn(2, outdim, inputdim, gridsize) / 
                                              (np.sqrt(inputdim) * np.sqrt(self.gridsize)))
         if self.addbias:
@@ -92,6 +96,7 @@ class KAN_FFT_linear_w_base(nn.Module):
                          scale_base_sigma * (torch.rand(inputdim, outdim)*2-1) * 1/np.sqrt(inputdim)).requires_grad_(fft_trainable)
         self.scale_fft = torch.nn.Parameter(torch.ones(inputdim, outdim) * scale_fft * 1 / np.sqrt(inputdim) * self.mask).requires_grad_(fft_trainable)  # make scale trainable
         self.base_fun = base_fun
+        self.exp_scale = nn.Parameter(torch.tensor(3.0))
 
     def forward(self,x):
         # print('device x', x.device)
@@ -134,12 +139,18 @@ class KAN_FFT_linear_w_base(nn.Module):
             if self.num_exp > 0:
                 exp_section = current[:, total_mult_inputs:total_mult_inputs + total_exp_inputs]
                 exp_grouped = exp_section.view(y.shape[0], self.num_exp, 2)  # (batch, num, 2)
-                base = torch.sigmoid(exp_grouped[:, :, 0])   # range in (0, 1), centered near 0.5
-                exponent = torch.sigmoid(exp_grouped[:, :, 1])  # also in (0, 1)
-                base = base * 0.9 + 0.05      # → (0.05, 0.95)
-                exponent = exponent * 0.9 + 0.05
-                powered = torch.pow(base, exponent)
-
+                # base = torch.sigmoid(exp_grouped[:, :, 0])   # range in (0, 1), centered near 0.5
+                # exponent = torch.sigmoid(exp_grouped[:, :, 1])  # also in (0, 1)
+                # base = base * 0.9 + 0.05      # → (0.05, 0.95)
+                # exponent = exponent * 0.9 + 0.05
+                base = nn.functional.softplus(exp_grouped[:, :, 0])
+                exponent = nn.functional.softplus(exp_grouped[:, :, 1])
+                # powered = torch.pow(base, exponent)
+                # exponent = torch.tanh(exp_grouped[:, :, 1]) *  self.exp_scale 
+              
+                powered = torch.exp(exponent*torch.log(base))
+                powered = self.layernorm(powered)
+        
                 # powered = torch.pow(exp_grouped[:, :, 0], exp_grouped[:, :, 1])
             else:
                 powered = torch.empty((y.shape[0], 0), device=y.device)

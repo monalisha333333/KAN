@@ -1,17 +1,22 @@
 {
-    "data_fn": "lambda x: torch.exp(x[:, [0]]**(x[:, [1]]) + x[:, [0]]*x[:, [1]])", 
-    "num_samples_train": 8,
-    "num_samples_val": 2,
+    "data_fn": "lambda x: (10**((0.4)*(-1)*x[:, [0]]) + 10**((0.4)*(-1)*x[:, [1]]))",
+    "num_samples_train": 800,
+    "num_samples_val": 200,
     "num_samples_test": 200,
-    "KAN_layers_nodes": [[2,0,0], [6,0,0], [3,0,0], [1,0,0]],
+    "KAN_layers_nodes": [
+        [2,0,0],
+        [6,0,0],
+        [3,0,0],
+        [1,0,0]
+    ],
     "num_grids": 12,
     "KAN_activation_layers": "SSF",
     "addbias": true,
     "batch_size": 4,
-    "lr": 1e-02,
-    "optimizer_weight_decay": 1e-5,
+    "lr": 0.01,
+    "optimizer_weight_decay": 1e-05,
     "scheduler_step_size": 5,
     "scheduler_gamma": 0.5,
-    "epochs": 1,
-    "patience_for_early_stop": 10
+    "epochs": 500,
+    "patience_for_early_stop": 30
 }

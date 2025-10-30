@@ -39,17 +39,24 @@ def B_batch(x, grid, k=3, extend=True, device='cpu'):
     # print("inside bbatch k=", k)
     x = x.unsqueeze(dim=2)
     grid = grid.unsqueeze(dim=0)
+    # print("input of b_batch: x=",x, x.min().item(), x.max().item())
+    # print("grid=",grid,grid.min().item(), grid.max().item())
     
     if k == 0:
         value = (x >= grid[:, :, :-1]) * (x < grid[:, :, 1:])
     else:
         B_km1 = B_batch(x[:,:,0], grid=grid[0], k=k - 1)
-        
+        # B_km1 = B_batch(x.squeeze(-1), grid.squeeze(0), k=k - 1)
+        # x = x.unsqueeze(-1)  # ensure shape (batch, in_dim, 1)
+        # grid = grid.unsqueeze(0)  # ensure shape (1, in_dim, num_knots)
+
         value = (x - grid[:, :, :-(k + 1)]) / (grid[:, :, k:-1] - grid[:, :, :-(k + 1)]) * B_km1[:, :, :-1] + (
                     grid[:, :, k + 1:] - x) / (grid[:, :, k + 1:] - grid[:, :, 1:(-k)]) * B_km1[:, :, 1:]
     
     # in case grid is degenerate
+    # print("inside b batch, value:",value)
     value = torch.nan_to_num(value)
+    # print("inside b batch, value after nan to num :",value)
     return value
 
 
@@ -77,10 +84,12 @@ def coef2curve(x_eval, grid, coef, k, device="cpu"):
             shape (batch, in_dim, out_dim)
         
     '''
-    # print("inside coef2curve k=", k)
+    # print("inside coef2curve ", x_eval.shape,grid.shape,coef.shape)
     b_splines = B_batch(x_eval, grid, k=k)
+    # print("====before einsum============")
+    # print("coef=",coef)
     y_eval = torch.einsum('ijk,jlk->ijl', b_splines, coef.to(b_splines.device))
-    
+    # print("inside coef2curve: after einsum: ", y_eval)
     return y_eval
 
 
@@ -106,7 +115,7 @@ def curve2coef(x_eval, y_eval, grid, k):
         coef : 3D torch.tensor
             shape (in_dim, out_dim, G+k)
     '''
-    #print('haha', x_eval.shape, y_eval.shape, grid.shape)
+    # print('haha', x_eval.shape, y_eval.shape, grid.shape)
     batch = x_eval.shape[0]
     in_dim = x_eval.shape[1]
     out_dim = y_eval.shape[2]
@@ -117,14 +126,19 @@ def curve2coef(x_eval, y_eval, grid, k):
     #print('mat', mat.shape)
     y_eval = y_eval.permute(1,2,0).unsqueeze(dim=3)
     #print('y_eval', y_eval.shape)
-    device = mat.device
+    # device = mat.device
     
-    coef = torch.linalg.lstsq(mat, y_eval).solution[:,:,:,0]
-    # try:
-    #     coef = torch.linalg.lstsq(mat, y_eval).solution[:,:,:,0]
-    # except:
-    #     print('lstsq failed')
-    
+    # coef = torch.linalg.lstsq(mat, y_eval).solution[:,:,:,0]
+    # print("=====inside curve2coef======")
+    try:
+        coef = torch.linalg.lstsq(mat, y_eval).solution[:,:,:,0]
+    except:
+        print('lstsq failed')
+    if torch.isnan(coef).any():
+        print("mat=",mat," y_eval=",y_eval)
+        print("coef=",coef)
+    else:
+        print("no Nan in coef.")
     # manual psuedo-inverse
     '''lamb=1e-8
     XtX = torch.einsum('ijmn,ijnp->ijmp', mat.permute(0,1,3,2), mat)
@@ -248,6 +262,7 @@ class KAN_Spline_linear_w_base(nn.Module):
         self.num_mult = num_mult
         self.mult_arity = mult_arity
         self.num_exp = num_exp
+        self.layernorm = nn.LayerNorm(num_exp)
         self.addbias = addbias
   
         grid = torch.linspace(grid_range[0], grid_range[1], steps=self.num + 1)[None,:].expand(self.in_dim, self.num+1)
@@ -256,6 +271,7 @@ class KAN_Spline_linear_w_base(nn.Module):
         noises = (torch.rand(self.num+1, self.in_dim, self.out_dim) - 1/2) * noise_scale / self.num
         # print("inside KANLayer calling curve2coeff k=", self.k)
         self.coef = torch.nn.Parameter(curve2coef(self.grid[:,k:-k].permute(1,0), noises, self.grid, self.k))
+        # print("dimensions of self.coef:",self.coef.shape)
         if self.addbias:
             self.bias = nn.Parameter(torch.zeros(1, self.out_dim))
       
@@ -268,9 +284,8 @@ class KAN_Spline_linear_w_base(nn.Module):
                          scale_base_sigma * (torch.rand(in_dim, out_dim)*2-1) * 1/np.sqrt(in_dim)).requires_grad_(sb_trainable)
         self.scale_sp = torch.nn.Parameter(torch.ones(in_dim, out_dim) * scale_sp * 1 / np.sqrt(in_dim) * self.mask).requires_grad_(sp_trainable)  # make scale trainable
         self.base_fun = base_fun
-
-        
         self.grid_eps = grid_eps
+        self.exp_scale = nn.Parameter(torch.tensor(3.0))
         
         self.to(device)
         
@@ -307,24 +322,30 @@ class KAN_Spline_linear_w_base(nn.Module):
         >>> y, preacts, postacts, postspline = model(x)
         >>> y.shape, preacts.shape, postacts.shape, postspline.shape
         '''
+        # print("=====Layer input =====")
+        # print(x)
         batch = x.shape[0]
         # preacts = x[:,None,:].clone().expand(batch, self.out_dim, self.in_dim)
             
         base = self.base_fun(x) # (batch, in_dim)
+        # print('shape of coef:',self.coef.shape)
         y = coef2curve(x_eval=x, grid=self.grid, coef=self.coef, k=self.k)
-        
+        # print("y (after coef2curve)=",y)
         # postspline = y.clone().permute(0,2,1)
             
         y = self.scale_base[None,:,:] * base[:,:,None] + self.scale_sp[None,:,:] * y
+        # print("y (after scaling)=",y)
+       
         y = self.mask[None,:,:] * y
-        
+        # print("y (after masking)=",y)
+       
         # postacts = y.clone().permute(0,2,1)
             
         y = torch.sum(y, dim=1)
 
         if self.addbias:
             y += self.bias
-        print('values of internal nodes:before mult', y)
+        # print('values of internal nodes:before mult', y)
         # Optional multiplicative / exponential feature transformations
         if self.num_mult > 0 or self.num_exp > 0:
             total_mult_inputs = self.num_mult * self.mult_arity
@@ -340,7 +361,7 @@ class KAN_Spline_linear_w_base(nn.Module):
             if self.num_mult > 0:
                 mult_grouped = current[:, :total_mult_inputs].view(batch, self.num_mult, self.mult_arity)
                 multed = torch.prod(mult_grouped, dim=-1)
-                print('values of nodes after multed:', multed)
+                # print('values of nodes after multed:', multed)
             else:
                 multed = torch.empty((batch, 0), device=y.device)
 
@@ -349,13 +370,21 @@ class KAN_Spline_linear_w_base(nn.Module):
                 exp_section = current[:, total_mult_inputs:total_mult_inputs + total_exp_inputs]
                 exp_grouped = exp_section.view(batch, self.num_exp, 2)
                 
-                base = torch.sigmoid(exp_grouped[:, :, 0])   # range in (0, 1), centered near 0.5
-                exponent = torch.sigmoid(exp_grouped[:, :, 1])  # also in (0, 1)
-                base = base * 0.9 + 0.05      # → (0.05, 0.95)
-                exponent = exponent * 0.9 + 0.05
-                powered = torch.pow(base, exponent)
+                # base = torch.sigmoid(exp_grouped[:, :, 0])   # range in (0, 1), centered near 0.5
+                # exponent = torch.sigmoid(exp_grouped[:, :, 1])  # also in (0, 1)
+                # base = base * 0.9 + 0.05      # → (0.05, 0.95)
+                # exponent = exponent * 0.9 + 0.05
+                # print('values of nodes before softplus: base:', exp_grouped[:, :, 0],' power:',exp_grouped[:, :, 1])
+                base = nn.functional.softplus(exp_grouped[:, :, 0])
+                exponent = nn.functional.softplus(exp_grouped[:, :, 1])
+                # exponent = torch.tanh(exp_grouped[:, :, 1]) *  self.exp_scale 
+                # print('After softplus: base:', base,' power:',exponent)
+                # powered = torch.pow(base, exponent)
+                powered = torch.exp(exponent*torch.log(base))
+                # print('values of nodes after powered:', powered)
+                powered = self.layernorm(powered)
                 # powered = torch.pow(exp_grouped[:, :, 0], exp_grouped[:, :, 1])
-                print('values of nodes after powered:', powered)
+                # print('values of nodes after layernorm:', powered)
             else:
                 powered = torch.empty((batch, 0), device=y.device)
 
@@ -463,7 +492,7 @@ class KAN_Spline_linear_w_base(nn.Module):
         def get_grid(num_interval):
             x_pos = parent.grid[:,parent.k:-parent.k]
             #print('x_pos', x_pos)
-            sp2 = KAN_Spline_linear(in_dim=1, out_dim=self.in_dim,k=1,num=x_pos.shape[1]-1,scale_base_mu=0.0, scale_base_sigma=0.0).to(x.device)
+            sp2 = KAN_Spline_linear_w_base(in_dim=1, out_dim=self.in_dim,k=1,num=x_pos.shape[1]-1,scale_base_mu=0.0, scale_base_sigma=0.0).to(x.device)
 
             #print('sp2_grid', sp2.grid[:,sp2.k:-sp2.k].permute(1,0).expand(-1,self.in_dim))
             #print('sp2_coef_shape', sp2.coef.shape)
@@ -511,7 +540,7 @@ class KAN_Spline_linear_w_base(nn.Module):
         >>> kanlayer_small.in_dim, kanlayer_small.out_dim
         (2, 3)
         '''
-        spb = KAN_Spline_linear(len(in_id), len(out_id), self.num, self.k, base_fun=self.base_fun)
+        spb = KAN_Spline_linear_w_base(len(in_id), len(out_id), self.num, self.k, base_fun=self.base_fun)
         spb.grid.data = self.grid[in_id]
         spb.coef.data = self.coef[in_id][:,out_id]
         spb.scale_base.data = self.scale_base[in_id][:,out_id]

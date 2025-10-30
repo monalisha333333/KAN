@@ -53,7 +53,9 @@ def train(model, device, train_loader, valid_loader, optimizer, loss_fn, epoch):
     for _, (x,y) in enumerate(train_loader):
         optimizer.zero_grad()
         x,y = x.to(device),y.to(device)
+        # print("input in train:", x)
         output =  model(x)
+        # print("output in train:",output)
         loss = loss_fn(output, y) 
         loss.backward()
         optimizer.step()
@@ -173,12 +175,20 @@ def main(
     train_ds = TensorDataset(dataset['train_input'], dataset['train_label'])
     val_ds = TensorDataset(dataset['test_input'], dataset['test_label'])
     # test_ds = TensorDataset(dataset1['test_input'], dataset1['test_label'])
-    train_loader = DataLoader(train_ds, batch_size=int(params["batch_size"]), shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=int(params["batch_size"]), shuffle=False)
+    train_loader = DataLoader(train_ds, 
+                              batch_size=int(params["batch_size"]), 
+                              shuffle=True,
+                               drop_last=True
+                               )
+    val_loader = DataLoader(val_ds, 
+                            batch_size=int(params["batch_size"]), 
+                            shuffle=False,
+                             drop_last=True
+                             )
     # test_loader = DataLoader(test_ds, batch_size=int(params["batch_size"]), shuffle=False)
     logger.info(
-        f"Training dataset has {len(train_ds)} samples, validation set has "
-        f"{len(val_ds)}."
+        f"Training dataset has {len(train_ds)} samples, in {len(train_loader)} batches; validation set has "
+        f"{len(val_ds)}, in {len(val_loader)} batches."
     )
     
     model=KAN(kan_layers_input,int(params["num_grids"]),
@@ -204,7 +214,6 @@ def main(
     best_acc = 0
     NUM_EPOCHS=params["epochs"]
     patience = params["patience_for_early_stop"]  # stop if validation loss does not decrease for 5 consecutive epochs
-    best_val_loss = float('inf')
     no_improve_count = 0
     for epoch in range(NUM_EPOCHS):
         train_loss, val_loss, train_acc, val_acc = train(model, 
@@ -227,19 +236,15 @@ def main(
             logger.info(f"New best Accuracy : {best_acc:.5f}")
             info = update_info()
             save(save_top_model, "val accuracy", "best", best_acc)
-            
-        if val_acc == 1:
-            break
-        # --- Early stopping logic ---
-        if val_loss < best_val_loss - 1e-6:  # small threshold to avoid floating noise
-            best_val_loss = val_loss
             no_improve_count = 0
         else:
             no_improve_count += 1
-            logger.info(f"No improvement in validation loss for {no_improve_count} consecutive epochs.")
-
+            logger.info(f"No improvement in validation accuracy for {no_improve_count} consecutive epochs.")
+        if val_acc == 1:
+            break
+        # --- Early stopping logic ---
         if no_improve_count >= patience:
-            logger.info(f"Stopping early at epoch {epoch+1} (no validation loss improvement in {patience} steps).")
+            logger.info(f"Stopping early at epoch {epoch+1} (no validation accuracy improvement in {patience} steps).")
             break
     logger.info("Training completed.")
     logger.info(f"Training time (sec): {time()-st:.2f}")
